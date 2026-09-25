@@ -1,0 +1,1064 @@
+openapi: 3.0.3
+info:
+  title: Automotive Marketplace API
+  version: 1.0.0
+  description: |
+    RESTful API for an automotive marketplace built with Node.js, Express, TypeScript, and PostgreSQL.
+    Supports browsing, searching, filtering, and managing vehicle listings with multi-level category
+    hierarchies and dynamic category-specific filters.
+
+    Base URL: https://automotive-marketplace-api.onrender.com
+servers:
+  - url: https://automotive-marketplace-api.onrender.com
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Service health checks
+  - name: Categories
+    description: Category hierarchy management
+  - name: Listings
+    description: Vehicle listing CRUD and browsing
+  - name: Search
+    description: Full-text search and suggestions
+  - name: Filters
+    description: Dynamic category filters and search facets
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns service status and database connectivity.
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/HealthData"
+        "503":
+          description: Service is degraded (database unreachable)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/HealthData"
+
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      summary: Fetch category tree
+      description: Returns the full category tree as nested nodes.
+      responses:
+        "200":
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CategoryNode"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Categories]
+      summary: Create category
+      description: Creates a new category, optionally under a parent. Builds closure-table paths.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCategoryBody"
+            example:
+              name: "Convertible"
+              parentId: "3fea97c7-8b5a-4f2d-bc7a-1b8c9de2f1a2"
+      responses:
+        "201":
+          description: Category created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Category"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/categories/{id}:
+    get:
+      tags: [Categories]
+      summary: Fetch category detail
+      description: Returns a category with its direct children.
+      parameters:
+        - $ref: "#/components/parameters/CategoryId"
+      responses:
+        "200":
+          description: Category detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CategoryNode"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      tags: [Categories]
+      summary: Update category
+      description: Partially updates a category name, slug, or parent.
+      parameters:
+        - $ref: "#/components/parameters/CategoryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryBody"
+            example:
+              name: "Sport Utility Vehicle"
+      responses:
+        "200":
+          description: Category updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Category"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/categories/{id}/listings:
+    get:
+      tags: [Categories]
+      summary: Listings within category subtree
+      description: Paginated listings from the category and all its descendants.
+      parameters:
+        - $ref: "#/components/parameters/CategoryId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Paginated listings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedListings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/listings:
+    get:
+      tags: [Listings]
+      summary: Browse listings
+      description: Paginated listings with filtering, cursor pagination, and sorting. Excludes removed listings.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Cursor"
+        - name: make
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          description: Make name (e.g. Toyota)
+        - name: minPrice
+          in: query
+          required: false
+          schema:
+            type: number
+            minimum: 0
+        - name: maxPrice
+          in: query
+          required: false
+          schema:
+            type: number
+            minimum: 0
+        - name: minYear
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1886
+            maximum: 2100
+        - name: maxYear
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1886
+            maximum: 2100
+        - name: fuelType
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 30
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [available, pending, sold]
+        - name: filters
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 10000
+          description: JSON object of dynamic category filters (e.g. `{"transmission":"automatic"}`)
+      responses:
+        "200":
+          description: Paginated listings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedListings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Listings]
+      summary: Create listing
+      description: Creates a new vehicle listing with optional images and dynamic attribute values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingBody"
+            example:
+              modelId: "b4d5a7c2-1f52-4d2e-9a89-1f2a5c6d7e8f"
+              categoryId: "3fea97c7-8b5a-4f2d-bc7a-1b8c9de2f1a2"
+              title: "2022 Toyota Fortuner 2.4 VRZ"
+              year: 2022
+              mileage: 25000
+              price: 485000000
+              condition: "used"
+              transmission: "automatic"
+              fuelType: "diesel"
+              color: "black"
+              city: "Jakarta"
+              images:
+                - imageUrl: "https://example.com/fortuner-1.jpg"
+                  sortOrder: 0
+              attributes:
+                - attributeId: "6b3c2d1e-2f4a-4b5c-8d6e-7f8a9b0c1d2e"
+                  value: "automatic"
+      responses:
+        "201":
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ListingDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/listings/{id}:
+    get:
+      tags: [Listings]
+      summary: Get listing detail
+      description: Returns a single listing with model, make, category, images, and attributes.
+      parameters:
+        - $ref: "#/components/parameters/ListingId"
+      responses:
+        "200":
+          description: Listing detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ListingDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    patch:
+      tags: [Listings]
+      summary: Update listing
+      description: Partially updates a listing. At least one field is required.
+      parameters:
+        - $ref: "#/components/parameters/ListingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateListingBody"
+            example:
+              price: 450000000
+      responses:
+        "200":
+          description: Listing updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ListingDetail"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      tags: [Listings]
+      summary: Soft-delete listing
+      description: Marks a listing as `removed` so it is excluded from public browse/search results.
+      parameters:
+        - $ref: "#/components/parameters/ListingId"
+      responses:
+        "204":
+          description: Listing soft-deleted
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/listings/search:
+    get:
+      tags: [Search]
+      summary: Full-text search listings
+      description: Full-text search across title, make, model, city, and description with dynamic filters, sorting, and cursor pagination. Excludes removed listings.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
+          description: Full-text search query
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Cursor"
+        - name: make
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: model
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: minPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+        - name: maxPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+        - name: minYear
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1886, maximum: 2100 }
+        - name: maxYear
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1886, maximum: 2100 }
+        - name: fuelType
+          in: query
+          required: false
+          schema: { type: string, maxLength: 30 }
+        - name: transmission
+          in: query
+          required: false
+          schema: { type: string, maxLength: 30 }
+        - name: categoryId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [available, pending, sold] }
+        - name: filters
+          in: query
+          required: false
+          schema: { type: string, maxLength: 10000 }
+          description: JSON object of dynamic category filters
+      responses:
+        "200":
+          description: Paginated matching listings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedListings"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/listings/search/suggest:
+    get:
+      tags: [Search]
+      summary: Autocomplete suggestions
+      description: Returns bounded prefix suggestions for make, model, or city.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Prefix query
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [make, model, city]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 5
+      responses:
+        "200":
+          description: Suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      q:
+                        type: string
+                      suggestions:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Suggestion"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/filters:
+    get:
+      tags: [Filters]
+      summary: Search facets
+      description: Returns facet counts for scalar and dynamic filter attributes matching the query filters.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, maxLength: 500 }
+        - name: make
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: model
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: minPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+        - name: maxPrice
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
+        - name: minYear
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1886, maximum: 2100 }
+        - name: maxYear
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1886, maximum: 2100 }
+        - name: fuelType
+          in: query
+          required: false
+          schema: { type: string, maxLength: 30 }
+        - name: transmission
+          in: query
+          required: false
+          schema: { type: string, maxLength: 30 }
+        - name: categoryId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [available, pending, sold] }
+        - name: filters
+          in: query
+          required: false
+          schema: { type: string, maxLength: 10000 }
+          description: JSON object of dynamic category filters
+      responses:
+        "200":
+          description: Facet definitions with counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total matching listings
+                      scalarOptions:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/FacetScalarOption"
+                      dynamicCounts:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/FacetDynamicCount"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/filters/{categoryId}:
+    get:
+      tags: [Filters]
+      summary: Dynamic filters for a category
+      description: Returns the dynamic filter attribute definitions (enum/range/boolean) assigned to a category.
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Category filter metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CategoryFilterMetadata"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+      description: Number of results per page
+    Sort:
+      name: sort
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [created_at, price, year, mileage]
+        default: created_at
+      description: Sort field (descending by value, then id)
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Base64url cursor returned in the previous page (keyset pagination)
+    CategoryId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Category ID
+    ListingId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Listing ID
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorBody"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Conflict:
+      description: Resource conflict (unique constraint)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    HealthData:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [connected, disconnected]
+        timestamp:
+          type: string
+          format: date-time
+      example:
+        status: ok
+        database: connected
+        timestamp: "2026-09-25T00:00:00.000Z"
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        slug:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      example:
+        id: "3fea97c7-8b5a-4f2d-bc7a-1b8c9de2f1a2"
+        parentId: null
+        name: "Cars"
+        slug: "cars"
+        createdAt: "2026-09-25T00:00:00.000Z"
+        updatedAt: "2026-09-25T00:00:00.000Z"
+
+    CategoryNode:
+      allOf:
+        - $ref: "#/components/schemas/Category"
+        - type: object
+          properties:
+            children:
+              type: array
+              items:
+                $ref: "#/components/schemas/CategoryNode"
+
+    CreateCategoryBody:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 140
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+
+    UpdateCategoryBody:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 140
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+
+    Listing:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        modelId:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        year:
+          type: integer
+        mileage:
+          type: integer
+        price:
+          type: string
+          description: Monetary value as string (NUMERIC)
+        condition:
+          type: string
+        transmission:
+          type: string
+        fuelType:
+          type: string
+        color:
+          type: string
+        city:
+          type: string
+        latitude:
+          type: string
+          nullable: true
+        longitude:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [available, pending, sold, removed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ListingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Listing"
+        - type: object
+          properties:
+            model:
+              $ref: "#/components/schemas/ModelRef"
+            make:
+              $ref: "#/components/schemas/MakeRef"
+            category:
+              $ref: "#/components/schemas/CategoryRef"
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/ListingImage"
+            attributes:
+              type: array
+              items:
+                $ref: "#/components/schemas/ListingAttributeValue"
+
+    ModelRef:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+
+    MakeRef:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+
+    CategoryRef:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        parentId: { type: string, format: uuid, nullable: true }
+
+    ListingImage:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        imageUrl: { type: string }
+        sortOrder: { type: integer }
+
+    ListingAttributeValue:
+      type: object
+      properties:
+        attributeId: { type: string, format: uuid }
+        key: { type: string }
+        type: { type: string, enum: [enum, range, boolean] }
+        value: { type: [string, number, boolean] }
+
+    CreateListingBody:
+      type: object
+      required: [modelId, categoryId, title, year, mileage, price, condition, transmission, fuelType, color, city]
+      properties:
+        modelId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000, nullable: true }
+        year: { type: integer, minimum: 1886, maximum: 2100 }
+        mileage: { type: integer, minimum: 0 }
+        price: { type: number, minimum: 0 }
+        condition: { type: string, minLength: 1, maxLength: 30 }
+        transmission: { type: string, minLength: 1, maxLength: 30 }
+        fuelType: { type: string, minLength: 1, maxLength: 30 }
+        color: { type: string, minLength: 1, maxLength: 50 }
+        city: { type: string, minLength: 1, maxLength: 100 }
+        latitude: { type: number, minimum: -90, maximum: 90, nullable: true }
+        longitude: { type: number, minimum: -180, maximum: 180, nullable: true }
+        status: { type: string, enum: [available, pending, sold] }
+        images:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              imageUrl: { type: string, minLength: 1, maxLength: 2048 }
+              sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+        attributes:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            properties:
+              attributeId: { type: string, format: uuid }
+              value: { type: [string, number, boolean] }
+
+    UpdateListingBody:
+      type: object
+      description: At least one field must be provided
+      properties:
+        modelId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000, nullable: true }
+        year: { type: integer, minimum: 1886, maximum: 2100 }
+        mileage: { type: integer, minimum: 0 }
+        price: { type: number, minimum: 0 }
+        condition: { type: string, minLength: 1, maxLength: 30 }
+        transmission: { type: string, minLength: 1, maxLength: 30 }
+        fuelType: { type: string, minLength: 1, maxLength: 30 }
+        color: { type: string, minLength: 1, maxLength: 50 }
+        city: { type: string, minLength: 1, maxLength: 100 }
+        latitude: { type: number, minimum: -90, maximum: 90, nullable: true }
+        longitude: { type: number, minimum: -180, maximum: 180, nullable: true }
+        status: { type: string, enum: [available, pending, sold] }
+        images:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              imageUrl: { type: string, minLength: 1, maxLength: 2048 }
+              sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+        attributes:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            properties:
+              attributeId: { type: string, format: uuid }
+              value: { type: [string, number, boolean] }
+
+    PaginatedListings:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Listing"
+        pagination:
+          type: object
+          properties:
+            nextCursor:
+              type: string
+              nullable: true
+            hasNextPage:
+              type: boolean
+
+    Suggestion:
+      type: object
+      properties:
+        type: { type: string, enum: [make, model, city] }
+        value: { type: string }
+        label: { type: string }
+
+    FilterAttributeOption:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        value: { type: string }
+        label: { type: string }
+        sortOrder: { type: integer }
+
+    FilterAttributeDefinition:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [enum, range, boolean] }
+        required: { type: boolean }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterAttributeOption"
+
+    CategoryFilterMetadata:
+      type: object
+      properties:
+        categoryId: { type: string, format: uuid }
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/FilterAttributeDefinition"
+
+    FacetScalarOption:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: string }
+        label: { type: string }
+        count: { type: integer }
+
+    FacetDynamicCount:
+      type: object
+      properties:
+        attributeId: { type: string, format: uuid }
+        value: { type: string }
+        count: { type: integer }
+
+    ValidationErrorBody:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR]
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+      example:
+        error:
+          code: VALIDATION_ERROR
+          message: Request validation failed
+          details:
+            - field: year
+              message: Year must be greater than 1885
+
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+      example:
+        error:
+          code: NOT_FOUND
+          message: Resource not found

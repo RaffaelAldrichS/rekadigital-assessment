@@ -8,12 +8,13 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
-    "verify": "tsx src/db/verify.ts"
+    "verify": "tsx src/db/verify.ts",
+    "start": "node dist/src/server.js"
   },
   "keywords": [],
   "type": "commonjs",

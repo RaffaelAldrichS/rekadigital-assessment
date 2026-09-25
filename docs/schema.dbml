@@ -1,0 +1,97 @@
+Table makes {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name varchar(100) [unique, not null]
+  slug varchar(120) [unique, not null]
+  created_at timestamptz [not null, default: `NOW()`]
+}
+
+Table models {
+  id uuid [pk, default: `gen_random_uuid()`]
+  make_id uuid [not null, ref: > makes.id]
+  name varchar(100) [not null]
+  slug varchar(120) [not null]
+  created_at timestamptz [not null, default: `NOW()`]
+  Note: 'UNIQUE (make_id, slug)'
+}
+
+Table categories {
+  id uuid [pk, default: `gen_random_uuid()`]
+  parent_id uuid [null, ref: > categories.id]
+  name varchar(120) [not null]
+  slug varchar(140) [not null]
+  created_at timestamptz [not null, default: `NOW()`]
+  updated_at timestamptz [not null, default: `NOW()`]
+  Note: 'UNIQUE (parent_id, slug); root slug unique WHERE parent_id IS NULL'
+}
+
+Table category_closure {
+  ancestor_id uuid [not null, ref: > categories.id]
+  descendant_id uuid [not null, ref: > categories.id]
+  depth integer [not null, check: "depth >= 0"]
+  composite_pk: [ancestor_id, descendant_id]
+}
+
+Table listings {
+  id uuid [pk, default: `gen_random_uuid()`]
+  model_id uuid [not null, ref: > models.id]
+  category_id uuid [not null, ref: > categories.id]
+  title varchar(200) [not null]
+  description text [null]
+  year smallint [not null, check: "year > 1885"]
+  mileage integer [not null, check: "mileage >= 0"]
+  price numeric(15,2) [not null, check: "price >= 0"]
+  condition varchar(30) [not null]
+  transmission varchar(30) [not null]
+  fuel_type varchar(30) [not null]
+  color varchar(50) [not null]
+  city varchar(100) [not null]
+  latitude numeric(9,6) [null]
+  longitude numeric(9,6) [null]
+  status varchar(20) [not null, check: "status IN ('available','pending','sold','removed')"]
+  search_vector tsvector [null]
+  created_at timestamptz [not null, default: `NOW()`]
+  updated_at timestamptz [not null, default: `NOW()`]
+}
+
+Table listing_images {
+  id uuid [pk, default: `gen_random_uuid()`]
+  listing_id uuid [not null, ref: > listings.id]
+  image_url text [not null]
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null, default: `NOW()`]
+}
+
+Table filter_attributes {
+  id uuid [pk, default: `gen_random_uuid()`]
+  key varchar(80) [unique, not null]
+  name varchar(120) [not null]
+  type varchar(20) [not null, check: "type IN ('enum','range','boolean')"]
+  created_at timestamptz [not null, default: `NOW()`]
+}
+
+Table category_filter_attributes {
+  category_id uuid [not null, ref: > categories.id]
+  attribute_id uuid [not null, ref: > filter_attributes.id]
+  required boolean [not null, default: false]
+  composite_pk: [category_id, attribute_id]
+}
+
+Table filter_attribute_options {
+  id uuid [pk, default: `gen_random_uuid()`]
+  attribute_id uuid [not null, ref: > filter_attributes.id]
+  value varchar(100) [not null]
+  label varchar(120) [not null]
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null, default: `NOW()`]
+  Note: 'UNIQUE (attribute_id, value)'
+}
+
+Table listing_attribute_values {
+  listing_id uuid [not null, ref: > listings.id]
+  attribute_id uuid [not null, ref: > filter_attributes.id]
+  value_text varchar(255) [null]
+  value_numeric numeric(15,4) [null]
+  value_boolean boolean [null]
+  composite_pk: [listing_id, attribute_id]
+  Note: 'CHECK: exactly one of value_text, value_numeric, value_boolean is populated'
+}
