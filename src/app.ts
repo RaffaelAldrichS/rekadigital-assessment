@@ -5,6 +5,7 @@ import { NotFoundError } from './shared/errors/app-error';
 import categoryRoutes from './modules/categories/category.routes';
 import filterRoutes from './modules/filters/filter.routes';
 import listingRoutes from './modules/listings/listing.routes';
+import searchRoutes from './modules/search/search.routes';
 
 export const app = express();
 
@@ -26,6 +27,7 @@ app.get('/health', async (_req, res) => {
 
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/filters', filterRoutes);
+app.use('/api/v1/listings', searchRoutes);
 app.use('/api/v1/listings', listingRoutes);
 
 app.use((req, _res, next) => {

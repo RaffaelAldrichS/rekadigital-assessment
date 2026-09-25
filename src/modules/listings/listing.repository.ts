@@ -24,7 +24,7 @@ function utcTimestamp(expr: string, alias: string): string {
   return `to_char(${expr} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "${alias}"`;
 }
 
-const LISTING_BASE_COLUMNS = `
+export const LISTING_BASE_COLUMNS = `
   l.id,
   l.model_id as "modelId",
   l.category_id as "categoryId",
@@ -45,7 +45,7 @@ const LISTING_BASE_COLUMNS = `
   ${utcTimestamp('l.updated_at', 'updatedAt')}
 `;
 
-const SORT_COLUMNS: Record<ListingSortField, string> = {
+export const SORT_COLUMNS: Record<ListingSortField, string> = {
   created_at: 'l.created_at',
   price: 'l.price',
   year: 'l.year',
