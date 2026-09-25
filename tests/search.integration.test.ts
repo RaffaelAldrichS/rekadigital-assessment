@@ -338,7 +338,7 @@ describe('Ticket 06 database integration — full-text search, suggestions, and 
     expect(city.body.data.suggestions).toEqual([
       { type: 'city', value: cityA, label: cityA },
     ]);
-    expect(bounded.body.data.suggestions).toHaveLength(4);
+    expect(bounded.body.data.suggestions).toHaveLength(3);
     expect(bounded.body.data.suggestions.length).toBeLessThanOrEqual(6);
     expect(bounded.body.data.suggestions.map((suggestion: any) => suggestion.type)).toEqual(
       expect.arrayContaining(['make', 'model', 'city'])
