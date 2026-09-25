@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { BrowseListingsQuery } from '../listings/listing.types';
 import { CategoryService } from './category.service';
 
 const categoryService = new CategoryService();
@@ -44,8 +45,9 @@ export async function updateCategory(req: Request, res: Response, next: NextFunc
 export async function getCategoryListings(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const id = req.params.id as string;
-    const listings = await categoryService.getCategoryListings(id);
-    res.json({ data: listings });
+    const query = req.query as unknown as BrowseListingsQuery;
+    const result = await categoryService.getCategoryListings(id, query);
+    res.json({ data: result.data, pagination: result.pagination });
   } catch (error) {
     next(error);
   }

@@ -17,6 +17,7 @@ import { Listing } from '../src/modules/listings/listing.types';
 const LISTING_ID = 'e131ee68-3f12-4c32-be33-08268b4f9222';
 const MODEL_ID = '2a48536c-d889-49a9-9dce-cdb7f958d4d1';
 const CATEGORY_ID = 'a60effa6-45f7-48ae-bcef-079ad5a2b91d';
+const TARGET_CATEGORY_ID = 'a60effa6-45f7-48ae-bcef-079ad5a2b92e';
 const MAKE_ID = '9c3f1a72-1b5d-4e88-9a2c-6d4f8e1b3a55';
 const ATTRIBUTE_ID = 'b7e4a1c2-9d3f-4a6e-8c1b-5f2e9d7a4c31';
 
@@ -69,7 +70,12 @@ function detailRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createMockClient(options: { failOnAttributeInsert?: boolean; modelMissing?: boolean } = {}): any {
+function createMockClient(options: {
+  failOnAttributeInsert?: boolean;
+  modelMissing?: boolean;
+  metadataRows?: any[];
+  optionRows?: any[];
+} = {}): any {
   const client = {
     query: vi.fn(),
     release: vi.fn(),
@@ -90,7 +96,12 @@ function createMockClient(options: { failOnAttributeInsert?: boolean; modelMissi
     }
     if (text.includes('FROM filter_attributes')) {
       return Promise.resolve({
-        rows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: ATTRIBUTE_ID }],
+        rows: options.metadataRows ?? [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: ATTRIBUTE_ID, required: false }],
+      });
+    }
+    if (text.includes('FROM filter_attribute_options')) {
+      return Promise.resolve({
+        rows: options.optionRows ?? [{ attributeId: ATTRIBUTE_ID, value: 'diesel' }],
       });
     }
     if (text.includes('INSERT INTO listing_attribute_values')) {
@@ -304,7 +315,7 @@ describe('Ticket 04 — Listing CRUD & Cursor Pagination', () => {
       mockClient = createMockClient();
       mockClient.query.mockImplementation((sql: string) => {
         const text = typeof sql === 'string' ? sql : String(sql);
-        if (text.includes('SELECT fa.id, fa.key, fa.type')) {
+        if (text.includes('FROM filter_attributes')) {
           return Promise.resolve({
             rows: [{ id: ATTRIBUTE_ID, key: 'sunroof', type: 'boolean', mapped: null }],
           });
@@ -332,7 +343,7 @@ describe('Ticket 04 — Listing CRUD & Cursor Pagination', () => {
       mockClient = createMockClient();
       mockClient.query.mockImplementation((sql: string) => {
         const text = typeof sql === 'string' ? sql : String(sql);
-        if (text.includes('SELECT fa.id, fa.key, fa.type')) {
+        if (text.includes('FROM filter_attributes')) {
           return Promise.resolve({
             rows: [{ id: ATTRIBUTE_ID, key: 'seats', type: 'range', mapped: ATTRIBUTE_ID }],
           });
@@ -354,6 +365,119 @@ describe('Ticket 04 — Listing CRUD & Cursor Pagination', () => {
         'Attribute "seats" expects a numeric value'
       );
       expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    it('create rejects missing required category attributes', async () => {
+      mockClient = createMockClient({
+        metadataRows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: ATTRIBUTE_ID, required: true }],
+      });
+      vi.spyOn(pool, 'connect').mockResolvedValue(mockClient);
+
+      await expect(listingRepo.create({ ...validCreateBody, attributes: [] } as any)).rejects.toThrow(
+        'Required attribute "fuel_type" is missing for the selected category'
+      );
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+      expect(mockClient.query).not.toHaveBeenCalledWith('COMMIT');
+    });
+
+    it('create rejects enum values not configured for the attribute', async () => {
+      mockClient = createMockClient({ optionRows: [] });
+      vi.spyOn(pool, 'connect').mockResolvedValue(mockClient);
+
+      await expect(listingRepo.create(validCreateBody as any)).rejects.toThrow(
+        'Value for enum attribute "fuel_type" is invalid'
+      );
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    it('category change preserves valid existing attributes', async () => {
+      mockClient = createMockClient({
+        metadataRows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: ATTRIBUTE_ID, required: false }],
+      });
+      mockClient.query.mockImplementation((sql: string) => {
+        const text = typeof sql === 'string' ? sql : String(sql);
+        if (text.includes('FOR UPDATE')) {
+          return Promise.resolve({ rows: [{ id: LISTING_ID, categoryId: CATEGORY_ID, status: 'available' }] });
+        }
+        if (text.includes('SELECT id FROM models')) {
+          return Promise.resolve({ rows: [{ id: MODEL_ID }] });
+        }
+        if (text.includes('SELECT id FROM categories')) {
+          return Promise.resolve({ rows: [{ id: CATEGORY_ID }] });
+        }
+        if (text.includes('FROM listing_attribute_values lav')) {
+          return Promise.resolve({
+            rows: [{ attributeId: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', valueText: 'diesel', valueNumeric: null, valueBoolean: null }],
+          });
+        }
+        if (text.includes('FROM filter_attribute_options')) {
+          return Promise.resolve({ rows: [{ attributeId: ATTRIBUTE_ID, value: 'diesel' }] });
+        }
+        if (text.includes('FROM filter_attributes')) {
+          return Promise.resolve({
+            rows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: ATTRIBUTE_ID, required: false }],
+          });
+        }
+        if (text.includes('UPDATE listings')) {
+          return Promise.resolve({ rows: [{ id: LISTING_ID }] });
+        }
+        if (text.includes('JOIN models m')) {
+          return Promise.resolve({ rows: [detailRow()] });
+        }
+        if (text.includes('FROM listing_images')) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (text.includes('FROM listing_attribute_values')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      vi.spyOn(pool, 'connect').mockResolvedValue(mockClient);
+
+      await listingRepo.update(LISTING_ID, { categoryId: TARGET_CATEGORY_ID });
+
+      expect(mockClient.query).not.toHaveBeenCalledWith(
+        'DELETE FROM listing_attribute_values WHERE listing_id = $1',
+        [LISTING_ID]
+      );
+      expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('category_id = $'), expect.any(Array));
+      expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+    });
+
+    it('category change rejects existing attributes invalid for target category', async () => {
+      mockClient = createMockClient({
+        metadataRows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: null, required: false }],
+      });
+      mockClient.query.mockImplementation((sql: string) => {
+        const text = typeof sql === 'string' ? sql : String(sql);
+        if (text.includes('FOR UPDATE')) {
+          return Promise.resolve({ rows: [{ id: LISTING_ID, categoryId: CATEGORY_ID, status: 'available' }] });
+        }
+        if (text.includes('SELECT id FROM models')) {
+          return Promise.resolve({ rows: [{ id: MODEL_ID }] });
+        }
+        if (text.includes('SELECT id FROM categories')) {
+          return Promise.resolve({ rows: [{ id: CATEGORY_ID }] });
+        }
+        if (text.includes('FROM listing_attribute_values lav')) {
+          return Promise.resolve({
+            rows: [{ attributeId: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', valueText: 'diesel', valueNumeric: null, valueBoolean: null }],
+          });
+        }
+        if (text.includes('FROM filter_attributes')) {
+          return Promise.resolve({
+            rows: [{ id: ATTRIBUTE_ID, key: 'fuel_type', type: 'enum', mapped: null, required: false }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      vi.spyOn(pool, 'connect').mockResolvedValue(mockClient);
+
+      await expect(listingRepo.update(LISTING_ID, { categoryId: TARGET_CATEGORY_ID })).rejects.toThrow(
+        'Attribute "fuel_type" is not available for the selected category'
+      );
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+      expect(mockClient.query).not.toHaveBeenCalledWith('COMMIT');
     });
 
     it('update replaces images and attributes transactionally and patches scalar fields', async () => {

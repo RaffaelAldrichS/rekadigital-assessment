@@ -1,6 +1,22 @@
 import { pool } from '../../db/pool';
 import { AppError, ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error';
+import {
+  Listing,
+  ListingCursor,
+  ListingSortField,
+} from '../listings/listing.types';
 import { Category, ClosureRow } from './category.types';
+
+const CATEGORY_LISTING_SORT_COLUMNS: Record<ListingSortField, string> = {
+  created_at: 'l.created_at',
+  price: 'l.price',
+  year: 'l.year',
+  mileage: 'l.mileage',
+};
+
+function utcTimestamp(expr: string, alias: string): string {
+  return `to_char(${expr} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "${alias}"`;
+}
 
 export class CategoryRepository {
   async findAll(): Promise<Category[]> {
@@ -232,13 +248,31 @@ export class CategoryRepository {
     }
   }
 
-  async findListingsByCategoryId(categoryId: string): Promise<any[]> {
+  async findListingsByCategoryId(
+    categoryId: string,
+    params: {
+      maxRows: number;
+      sort: ListingSortField;
+      cursor: ListingCursor | null;
+    }
+  ): Promise<Listing[]> {
     const catCheck = await pool.query('SELECT id FROM categories WHERE id = $1', [categoryId]);
     if (catCheck.rows.length === 0) {
       throw new NotFoundError('Category not found');
     }
 
-    const result = await pool.query(
+    const sortColumn = CATEGORY_LISTING_SORT_COLUMNS[params.sort];
+    const values: unknown[] = [categoryId];
+    const conditions = [`cc.ancestor_id = $1`, `l.status <> 'removed'`];
+
+    if (params.cursor) {
+      values.push(params.cursor.value, params.cursor.id);
+      conditions.push(`(${sortColumn}, l.id) < ($${values.length - 1}, $${values.length})`);
+    }
+
+    values.push(params.maxRows);
+
+    const result = await pool.query<Listing>(
       `
       SELECT
         l.id,
@@ -257,15 +291,15 @@ export class CategoryRepository {
         l.latitude,
         l.longitude,
         l.status,
-        l.created_at as "createdAt",
-        l.updated_at as "updatedAt"
+        ${utcTimestamp('l.created_at', 'createdAt')},
+        ${utcTimestamp('l.updated_at', 'updatedAt')}
       FROM listings l
       JOIN category_closure cc ON l.category_id = cc.descendant_id
-      WHERE cc.ancestor_id = $1
-        AND l.status != 'removed'
-      ORDER BY l.created_at DESC, l.id DESC;
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY ${sortColumn} DESC, l.id DESC
+      LIMIT $${values.length};
     `,
-      [categoryId]
+      values
     );
 
     return result.rows;

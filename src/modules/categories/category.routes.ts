@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validateRequest } from '../../middleware/validation';
+import { browseListingsQuerySchema } from '../listings/listing.schema';
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -31,7 +32,7 @@ router.patch(
 
 router.get(
   '/:id/listings',
-  validateRequest({ params: categoryIdParamSchema }),
+  validateRequest({ params: categoryIdParamSchema, query: browseListingsQuerySchema }),
   categoryController.getCategoryListings
 );
 

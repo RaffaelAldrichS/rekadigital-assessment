@@ -1,4 +1,10 @@
 import { NotFoundError } from '../../shared/errors/app-error';
+import { encodeCursor } from '../../shared/pagination/cursor';
+import { buildCursor, parseCursor } from '../listings/listing.service';
+import {
+  BrowseListingsQuery,
+  PaginatedListings,
+} from '../listings/listing.types';
 import { CategoryRepository } from './category.repository';
 import { Category, CategoryNode, CreateCategoryInput, UpdateCategoryInput } from './category.types';
 
@@ -84,7 +90,21 @@ export class CategoryService {
     return this.categoryRepo.update(id, updatePayload);
   }
 
-  async getCategoryListings(id: string): Promise<any[]> {
-    return this.categoryRepo.findListingsByCategoryId(id);
+  async getCategoryListings(id: string, query: BrowseListingsQuery): Promise<PaginatedListings> {
+    const cursor = query.cursor !== undefined ? parseCursor(query.cursor, query.sort) : null;
+    const rows = await this.categoryRepo.findListingsByCategoryId(id, {
+      maxRows: query.limit + 1,
+      sort: query.sort,
+      cursor,
+    });
+    const hasNextPage = rows.length > query.limit;
+    const data = hasNextPage ? rows.slice(0, query.limit) : rows;
+    const nextCursor =
+      hasNextPage && data.length > 0 ? encodeCursor(buildCursor(data[data.length - 1], query.sort)) : null;
+
+    return {
+      data,
+      pagination: { nextCursor, hasNextPage },
+    };
   }
 }

@@ -6,6 +6,7 @@ import {
   FilterAttributeType,
   Listing,
   ListingAttributeValue,
+  ListingAttributeInput,
   ListingCursor,
   ListingDetail,
   ListingImage,
@@ -74,6 +75,14 @@ interface AttributeRow {
   valueText: string | null;
   valueNumeric: string | null;
   valueBoolean: boolean | null;
+}
+
+interface AttributeMetadataRow {
+  id: string;
+  key: string;
+  type: FilterAttributeType;
+  mapped: string | null;
+  required: boolean;
 }
 
 interface ImageRow {
@@ -160,9 +169,7 @@ export class ListingRepository {
 
       await this.insertImages(client, listingId, input.images ?? []);
 
-      if (input.attributes !== undefined && input.attributes.length > 0) {
-        await this.insertAttributeValues(client, listingId, input.categoryId, input.attributes);
-      }
+      await this.insertAttributeValues(client, listingId, input.categoryId, input.attributes ?? []);
 
       const detail = await this.loadDetail(client, listingId);
       await client.query('COMMIT');
@@ -242,6 +249,11 @@ export class ListingRepository {
         await this.insertImages(client, id, input.images);
       }
 
+      if (input.categoryId !== undefined && input.categoryId !== currentCategoryId && input.attributes === undefined) {
+        const existingAttributes = await this.loadExistingAttributes(client, id);
+        await this.validateAttributeValues(client, targetCategoryId, existingAttributes);
+      }
+
       if (input.attributes !== undefined) {
         await client.query('DELETE FROM listing_attribute_values WHERE listing_id = $1', [id]);
         await this.insertAttributeValues(client, id, targetCategoryId, input.attributes);
@@ -289,66 +301,185 @@ export class ListingRepository {
     return result.rows.length > 0;
   }
 
+  private async loadExistingAttributes(
+    client: Queryable,
+    listingId: string
+  ): Promise<ListingAttributeInput[]> {
+    const result = await client.query<AttributeRow>(
+      `
+      SELECT
+        lav.attribute_id as "attributeId",
+        fa.key,
+        fa.type,
+        lav.value_text as "valueText",
+        lav.value_numeric as "valueNumeric",
+        lav.value_boolean as "valueBoolean"
+      FROM listing_attribute_values lav
+      JOIN filter_attributes fa ON fa.id = lav.attribute_id
+      WHERE lav.listing_id = $1
+      ORDER BY fa.key ASC;
+    `,
+      [listingId]
+    );
+
+    return result.rows.map((attribute) => {
+      const value =
+        attribute.type === 'boolean'
+          ? attribute.valueBoolean
+          : attribute.type === 'range'
+            ? attribute.valueNumeric
+            : attribute.valueText;
+      if (value === null) {
+        throw new ValidationError(`Stored value for attribute "${attribute.key}" is invalid`);
+      }
+      return {
+        attributeId: attribute.attributeId,
+        value: attribute.type === 'range' ? Number(attribute.valueNumeric) : value,
+      };
+    });
+  }
+
   private async insertImages(
     client: PoolClient,
     listingId: string,
     images: { imageUrl: string; sortOrder?: number }[]
   ): Promise<void> {
-    for (const [index, image] of images.entries()) {
-      await client.query(
-        `
-        INSERT INTO listing_images (listing_id, image_url, sort_order)
-        VALUES ($1, $2, $3);
-      `,
-        [listingId, image.imageUrl, image.sortOrder ?? index]
-      );
+    if (images.length === 0) {
+      return;
     }
+
+    const values: unknown[] = [];
+    const rows = images.map((image, index) => {
+      const start = values.length;
+      values.push(listingId, image.imageUrl, image.sortOrder ?? index);
+      return `($${start + 1}, $${start + 2}, $${start + 3})`;
+    });
+
+    await client.query(
+      `
+      INSERT INTO listing_images (listing_id, image_url, sort_order)
+      VALUES ${rows.join(', ')};
+    `,
+      values
+    );
   }
 
   private async insertAttributeValues(
     client: PoolClient,
     listingId: string,
     categoryId: string,
-    attributes: { attributeId: string; value: string | number | boolean }[]
+    attributes: ListingAttributeInput[]
   ): Promise<void> {
-    for (const attribute of attributes) {
-      const attributeRes = await client.query<{
-        id: string;
-        key: string;
-        type: FilterAttributeType;
-        mapped: string | null;
-      }>(
-        `
-        SELECT fa.id, fa.key, fa.type, cfa.attribute_id as "mapped"
-        FROM filter_attributes fa
-        LEFT JOIN category_filter_attributes cfa
-          ON cfa.attribute_id = fa.id AND cfa.category_id = $2
-        WHERE fa.id = $1;
-      `,
-        [attribute.attributeId, categoryId]
-      );
+    const metadata = await this.validateAttributeValues(client, categoryId, attributes);
+    if (attributes.length === 0) {
+      return;
+    }
 
-      if (attributeRes.rows.length === 0) {
+    const values: unknown[] = [];
+    const rows = attributes.map((attribute) => {
+      const start = values.length;
+      const meta = metadata.get(attribute.attributeId)!;
+      const coerced = coerceAttributeValue(meta.type, attribute.value, meta.key);
+      values.push(listingId, attribute.attributeId, coerced.valueText, coerced.valueNumeric, coerced.valueBoolean);
+      return `($${start + 1}, $${start + 2}, $${start + 3}, $${start + 4}, $${start + 5})`;
+    });
+
+    await client.query(
+      `
+      INSERT INTO listing_attribute_values (listing_id, attribute_id, value_text, value_numeric, value_boolean)
+      VALUES ${rows.join(', ')};
+    `,
+      values
+    );
+  }
+
+  private async validateAttributeValues(
+    client: Queryable,
+    categoryId: string,
+    attributes: ListingAttributeInput[]
+  ): Promise<Map<string, AttributeMetadataRow>> {
+    const attributeIds = [...new Set(attributes.map((attribute) => attribute.attributeId))];
+    const metadata = await this.loadAttributeMetadata(client, categoryId, attributeIds);
+    const submitted = new Set(attributeIds);
+
+    for (const attributeId of attributeIds) {
+      const meta = metadata.get(attributeId);
+      if (!meta) {
         throw new NotFoundError('Filter attribute not found');
       }
-
-      const attributeMeta = attributeRes.rows[0];
-      if (attributeMeta.mapped === null) {
-        throw new ValidationError(
-          `Attribute "${attributeMeta.key}" is not available for the selected category`
-        );
+      if (meta.mapped === null) {
+        throw new ValidationError(`Attribute "${meta.key}" is not available for the selected category`);
       }
-
-      const coerced = coerceAttributeValue(attributeMeta.type, attribute.value, attributeMeta.key);
-
-      await client.query(
-        `
-        INSERT INTO listing_attribute_values (listing_id, attribute_id, value_text, value_numeric, value_boolean)
-        VALUES ($1, $2, $3, $4, $5);
-      `,
-        [listingId, attribute.attributeId, coerced.valueText, coerced.valueNumeric, coerced.valueBoolean]
-      );
     }
+
+    for (const meta of metadata.values()) {
+      if (meta.required && !submitted.has(meta.id)) {
+        throw new ValidationError(`Required attribute "${meta.key}" is missing for the selected category`);
+      }
+    }
+
+    const duplicate = attributes.find(
+      (attribute, index) => attributes.findIndex((candidate) => candidate.attributeId === attribute.attributeId) !== index
+    );
+    if (duplicate) {
+      throw new ValidationError(`Attribute "${duplicate.attributeId}" was provided more than once`);
+    }
+
+    const enumValues = new Map<string, Set<string>>();
+    const enumAttributeIds = attributes
+      .map((attribute) => ({ attribute, type: metadata.get(attribute.attributeId)?.type }))
+      .filter((entry): entry is { attribute: ListingAttributeInput; type: FilterAttributeType } => entry.type === 'enum')
+      .map((entry) => entry.attribute.attributeId);
+
+    if (enumAttributeIds.length > 0) {
+      const options = await client.query<{ attributeId: string; value: string }>(
+        `
+        SELECT attribute_id as "attributeId", value
+        FROM filter_attribute_options
+        WHERE attribute_id = ANY($1::uuid[]);
+      `,
+        [enumAttributeIds]
+      );
+      for (const option of options.rows) {
+        const valuesForAttribute = enumValues.get(option.attributeId) ?? new Set<string>();
+        valuesForAttribute.add(option.value);
+        enumValues.set(option.attributeId, valuesForAttribute);
+      }
+    }
+
+    for (const attribute of attributes) {
+      const meta = metadata.get(attribute.attributeId)!;
+      const coerced = coerceAttributeValue(meta.type, attribute.value, meta.key);
+      if (meta.type === 'enum' && !enumValues.get(attribute.attributeId)?.has(coerced.valueText!)) {
+        throw new ValidationError(`Value for enum attribute "${meta.key}" is invalid`);
+      }
+    }
+
+    return metadata;
+  }
+
+  private async loadAttributeMetadata(
+    client: Queryable,
+    categoryId: string,
+    attributeIds: string[] | ListingAttributeInput[]
+  ): Promise<Map<string, AttributeMetadataRow>> {
+    const ids = attributeIds.map((attribute) => (typeof attribute === 'string' ? attribute : attribute.attributeId));
+    const result = await client.query<AttributeMetadataRow>(
+      `
+      SELECT
+        fa.id,
+        fa.key,
+        fa.type,
+        cfa.attribute_id as "mapped",
+        COALESCE(cfa.required, FALSE) as required
+      FROM filter_attributes fa
+      LEFT JOIN category_filter_attributes cfa
+        ON cfa.attribute_id = fa.id AND cfa.category_id = $2
+      WHERE fa.id = ANY($1::uuid[]) OR cfa.category_id = $2;
+    `,
+      [ids, categoryId]
+    );
+    return new Map(result.rows.map((attribute) => [attribute.id, attribute]));
   }
 
   private async loadDetail(client: Queryable, id: string): Promise<ListingDetail | null> {
