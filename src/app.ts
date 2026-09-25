@@ -3,6 +3,7 @@ import { testConnection } from './db/pool';
 import { errorHandler } from './middleware/error-handler';
 import { NotFoundError } from './shared/errors/app-error';
 import categoryRoutes from './modules/categories/category.routes';
+import listingRoutes from './modules/listings/listing.routes';
 
 export const app = express();
 
@@ -23,6 +24,7 @@ app.get('/health', async (_req, res) => {
 });
 
 app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/listings', listingRoutes);
 
 app.use((req, _res, next) => {
   next(new NotFoundError(`Route ${req.method} ${req.path} not found`));

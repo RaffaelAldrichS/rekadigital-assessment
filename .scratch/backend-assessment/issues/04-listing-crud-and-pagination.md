@@ -4,13 +4,13 @@
 
 **Blocked by:** 03 — Category hierarchy
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Listing repository, service, controller, and Zod schemas implemented under `src/modules/listings/`.
-- [ ] `POST /api/v1/listings` creates a listing with model/category validation, images, and dynamic attribute values in a single SQL transaction.
-- [ ] `GET /api/v1/listings` browses available listings with deterministic cursor pagination (`WHERE (created_at, id) < ($cursorCreatedAt, $cursorId)`), bounded page limits (default 20, max 50), and standard envelope `{ data, pagination: { nextCursor, hasNextPage } }`.
-- [ ] Public browse/get queries strictly exclude soft-deleted `status = 'removed'` listings.
-- [ ] `GET /api/v1/listings/:id` retrieves single listing with model, make, category details, images, and dynamic attributes.
-- [ ] `PATCH /api/v1/listings/:id` partial update revalidating attributes and updating images transactionally.
-- [ ] `DELETE /api/v1/listings/:id` performs soft deletion by updating `status = 'removed'` and returning `204 No Content`.
-- [ ] Integration tests verifying create, read, update, soft delete, cursor pagination uniqueness across adjacent pages, and malformed cursor rejection.
+- [x] Listing repository, service, controller, and Zod schemas implemented under `src/modules/listings/`.
+- [x] `POST /api/v1/listings` creates a listing with model/category validation, images, and dynamic attribute values in a single SQL transaction.
+- [x] `GET /api/v1/listings` browses available listings with deterministic cursor pagination (`WHERE (created_at, id) < ($cursorCreatedAt, $cursorId)`), bounded page limits (default 20, max 50), and standard envelope `{ data, pagination: { nextCursor, hasNextPage } }`.
+- [x] Public browse/get queries strictly exclude soft-deleted `status = 'removed'` listings.
+- [x] `GET /api/v1/listings/:id` retrieves single listing with model, make, category details, images, and dynamic attributes.
+- [x] `PATCH /api/v1/listings/:id` partial update revalidating attributes and updating images transactionally.
+- [x] `DELETE /api/v1/listings/:id` performs soft deletion by updating `status = 'removed'` and returning `204 No Content`.
+- [x] Integration tests verifying create, read, update, soft delete, cursor pagination uniqueness across adjacent pages, and malformed cursor rejection.
