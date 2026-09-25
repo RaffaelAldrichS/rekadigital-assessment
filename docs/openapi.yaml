@@ -567,19 +567,7 @@ paths:
                 type: object
                 properties:
                   data:
-                    type: object
-                    properties:
-                      total:
-                        type: integer
-                        description: Total matching listings
-                      scalarOptions:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/FacetScalarOption"
-                      dynamicCounts:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/FacetDynamicCount"
+                    $ref: "#/components/schemas/FacetsData"
         "400":
           $ref: "#/components/responses/ValidationError"
         "500":
@@ -879,7 +867,11 @@ components:
         attributeId: { type: string, format: uuid }
         key: { type: string }
         type: { type: string, enum: [enum, range, boolean] }
-        value: { type: [string, number, boolean] }
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
 
     CreateListingBody:
       type: object
@@ -915,7 +907,11 @@ components:
             type: object
             properties:
               attributeId: { type: string, format: uuid }
-              value: { type: [string, number, boolean] }
+              value:
+                oneOf:
+                  - type: string
+                  - type: number
+                  - type: boolean
 
     UpdateListingBody:
       type: object
@@ -951,7 +947,11 @@ components:
             type: object
             properties:
               attributeId: { type: string, format: uuid }
-              value: { type: [string, number, boolean] }
+              value:
+                oneOf:
+                  - type: string
+                  - type: number
+                  - type: boolean
 
     PaginatedListings:
       type: object
@@ -1006,20 +1006,67 @@ components:
           items:
             $ref: "#/components/schemas/FilterAttributeDefinition"
 
-    FacetScalarOption:
+    FacetsData:
       type: object
       properties:
-        key: { type: string }
-        value: { type: string }
-        label: { type: string }
-        count: { type: integer }
+        context:
+          type: object
+          properties:
+            q:
+              type: string
+            categoryId:
+              type: string
+              format: uuid
+        total:
+          type: integer
+          description: Total matching listings
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacetDefinition"
+      example:
+        context:
+          q: Toyota
+        total: 183
+        filters:
+          - id: make
+            key: make
+            name: Make
+            type: enum
+            required: false
+            options:
+              - value: toyota
+                label: Toyota
+                count: 183
 
-    FacetDynamicCount:
+    FacetDefinition:
       type: object
       properties:
-        attributeId: { type: string, format: uuid }
-        value: { type: string }
-        count: { type: integer }
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [enum, range, boolean]
+        required:
+          type: boolean
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacetOption"
+
+    FacetOption:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
 
     ValidationErrorBody:
       type: object
