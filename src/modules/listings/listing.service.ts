@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from '../../shared/errors/app-error';
 import { decodeCursor, encodeCursor } from '../../shared/pagination/cursor';
+import { FilterService } from '../filters/filter.service';
 import { ListingRepository } from './listing.repository';
 import { listingCursorSchema } from './listing.schema';
 import {
@@ -50,7 +51,10 @@ export function buildCursor(row: Listing, sort: ListingSortField): ListingCursor
 }
 
 export class ListingService {
-  constructor(private listingRepo: ListingRepository = new ListingRepository()) {}
+  constructor(
+    private listingRepo: ListingRepository = new ListingRepository(),
+    private filterService: FilterService = new FilterService()
+  ) {}
 
   async createListing(input: CreateListingInput): Promise<ListingDetail> {
     return this.listingRepo.create(input);
@@ -66,11 +70,21 @@ export class ListingService {
 
   async browseListings(query: BrowseListingsQuery): Promise<PaginatedListings> {
     const cursor = query.cursor !== undefined ? parseCursor(query.cursor, query.sort) : null;
+    const dynamicFilters = await this.filterService.prepareDynamicFilters(query.categoryId, query.filters);
 
     const rows = await this.listingRepo.browse({
       maxRows: query.limit + 1,
       sort: query.sort,
       cursor,
+      make: query.make,
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
+      minYear: query.minYear,
+      maxYear: query.maxYear,
+      fuelType: query.fuelType,
+      categoryId: query.categoryId,
+      status: query.status,
+      dynamicFilters,
     });
 
     const hasNextPage = rows.length > query.limit;

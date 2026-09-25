@@ -170,11 +170,31 @@ export const listingIdParamSchema = z.object({
   id: z.string().uuid('Invalid listing ID format'),
 });
 
-export const browseListingsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1, 'Limit must be at least 1').max(50, 'Limit cannot exceed 50').default(20),
-  sort: z.enum(LISTING_SORT_FIELDS).default('created_at'),
-  cursor: z.string().trim().min(1, 'Cursor cannot be empty').optional(),
-});
+const browseQueryNumber = z.coerce.number().finite();
+
+export const browseListingsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1, 'Limit must be at least 1').max(50, 'Limit cannot exceed 50').default(20),
+    sort: z.enum(LISTING_SORT_FIELDS).default('created_at'),
+    cursor: z.string().trim().min(1, 'Cursor cannot be empty').optional(),
+    make: z.string().trim().min(1).max(100).optional(),
+    minPrice: browseQueryNumber.nonnegative('Minimum price must be non-negative').optional(),
+    maxPrice: browseQueryNumber.nonnegative('Maximum price must be non-negative').optional(),
+    minYear: browseQueryNumber.int().min(1886, 'Year must be greater than 1885').max(2100).optional(),
+    maxYear: browseQueryNumber.int().min(1886, 'Year must be greater than 1885').max(2100).optional(),
+    fuelType: z.string().trim().min(1).max(30).optional(),
+    categoryId: z.string().uuid('Invalid category ID format').optional(),
+    status: z.enum(['available', 'pending', 'sold']).optional(),
+    filters: z.string().trim().min(1, 'Dynamic filters cannot be empty').max(10000).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.minPrice !== undefined && data.maxPrice !== undefined && data.minPrice > data.maxPrice) {
+      ctx.addIssue({ code: 'custom', path: ['minPrice'], message: 'Minimum price cannot exceed maximum price' });
+    }
+    if (data.minYear !== undefined && data.maxYear !== undefined && data.minYear > data.maxYear) {
+      ctx.addIssue({ code: 'custom', path: ['minYear'], message: 'Minimum year cannot exceed maximum year' });
+    }
+  });
 
 export type BrowseListingsQueryInput = z.infer<typeof browseListingsQuerySchema>;
 

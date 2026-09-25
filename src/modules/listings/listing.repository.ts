@@ -1,6 +1,8 @@
 import { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { pool } from '../../db/pool';
 import { AppError, ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error';
+import { buildDynamicFilterPredicates } from '../filters/filter-predicate';
+import { ValidatedDynamicFilter } from '../filters/filter.types';
 import {
   CreateListingInput,
   FilterAttributeType,
@@ -190,16 +192,62 @@ export class ListingRepository {
     maxRows: number;
     sort: ListingSortField;
     cursor: ListingCursor | null;
+    make?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minYear?: number;
+    maxYear?: number;
+    fuelType?: string;
+    categoryId?: string;
+    status?: Exclude<Listing['status'], 'removed'>;
+    dynamicFilters?: ValidatedDynamicFilter[];
   }): Promise<Listing[]> {
     const sortColumn = SORT_COLUMNS[params.sort];
     const conditions: string[] = [`l.status <> 'removed'`];
     const values: unknown[] = [];
+    const joins = ['JOIN models m ON m.id = l.model_id', 'JOIN makes mk ON mk.id = m.make_id'];
+
+    if (params.categoryId !== undefined) {
+      values.push(params.categoryId);
+      joins.push(`JOIN category_closure cc ON cc.ancestor_id = $${values.length} AND cc.descendant_id = l.category_id`);
+    }
+
+    if (params.make !== undefined) {
+      values.push(params.make);
+      const parameter = values.length;
+      conditions.push(`(mk.id::text = $${parameter} OR mk.slug = $${parameter} OR LOWER(mk.name) = LOWER($${parameter}))`);
+    }
+    if (params.minPrice !== undefined) {
+      values.push(params.minPrice);
+      conditions.push(`l.price >= $${values.length}`);
+    }
+    if (params.maxPrice !== undefined) {
+      values.push(params.maxPrice);
+      conditions.push(`l.price <= $${values.length}`);
+    }
+    if (params.minYear !== undefined) {
+      values.push(params.minYear);
+      conditions.push(`l.year >= $${values.length}`);
+    }
+    if (params.maxYear !== undefined) {
+      values.push(params.maxYear);
+      conditions.push(`l.year <= $${values.length}`);
+    }
+    if (params.fuelType !== undefined) {
+      values.push(params.fuelType);
+      conditions.push(`l.fuel_type = $${values.length}`);
+    }
+    if (params.status !== undefined) {
+      values.push(params.status);
+      conditions.push(`l.status = $${values.length}`);
+    }
 
     if (params.cursor) {
       values.push(params.cursor.value, params.cursor.id);
       conditions.push(`(${sortColumn}, l.id) < ($${values.length - 1}, $${values.length})`);
     }
 
+    conditions.push(...buildDynamicFilterPredicates(params.dynamicFilters ?? [], values));
     values.push(params.maxRows);
 
     const result = await pool.query<Listing>(
@@ -207,6 +255,7 @@ export class ListingRepository {
       SELECT
       ${LISTING_BASE_COLUMNS}
       FROM listings l
+      ${joins.join('\n      ')}
       WHERE ${conditions.join(' AND ')}
       ORDER BY ${sortColumn} DESC, l.id DESC
       LIMIT $${values.length};

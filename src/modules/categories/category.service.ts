@@ -1,5 +1,6 @@
 import { NotFoundError } from '../../shared/errors/app-error';
 import { encodeCursor } from '../../shared/pagination/cursor';
+import { FilterService } from '../filters/filter.service';
 import { buildCursor, parseCursor } from '../listings/listing.service';
 import {
   BrowseListingsQuery,
@@ -43,7 +44,10 @@ export function buildCategoryTree(categories: Category[]): CategoryNode[] {
 }
 
 export class CategoryService {
-  constructor(private categoryRepo: CategoryRepository = new CategoryRepository()) {}
+  constructor(
+    private categoryRepo: CategoryRepository = new CategoryRepository(),
+    private filterService: FilterService = new FilterService()
+  ) {}
 
   async getCategoryTree(): Promise<CategoryNode[]> {
     const allCategories = await this.categoryRepo.findAll();
@@ -92,10 +96,19 @@ export class CategoryService {
 
   async getCategoryListings(id: string, query: BrowseListingsQuery): Promise<PaginatedListings> {
     const cursor = query.cursor !== undefined ? parseCursor(query.cursor, query.sort) : null;
+    const dynamicFilters = await this.filterService.prepareDynamicFilters(id, query.filters);
     const rows = await this.categoryRepo.findListingsByCategoryId(id, {
       maxRows: query.limit + 1,
       sort: query.sort,
       cursor,
+      make: query.make,
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
+      minYear: query.minYear,
+      maxYear: query.maxYear,
+      fuelType: query.fuelType,
+      status: query.status,
+      dynamicFilters,
     });
     const hasNextPage = rows.length > query.limit;
     const data = hasNextPage ? rows.slice(0, query.limit) : rows;

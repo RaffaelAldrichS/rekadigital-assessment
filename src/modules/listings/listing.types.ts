@@ -108,6 +108,15 @@ export interface BrowseListingsQuery {
   limit: number;
   sort: ListingSortField;
   cursor?: string;
+  make?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  minYear?: number;
+  maxYear?: number;
+  fuelType?: string;
+  categoryId?: string;
+  status?: Exclude<ListingStatus, 'removed'>;
+  filters?: string;
 }
 
 export interface PaginatedListings {

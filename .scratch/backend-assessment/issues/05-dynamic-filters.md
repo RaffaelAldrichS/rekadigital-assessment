@@ -4,11 +4,11 @@
 
 **Blocked by:** 04 — Listing CRUD and pagination
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Filter repository, service, controller, and Zod validation schemas implemented under `src/modules/filters/`.
-- [ ] `GET /api/v1/filters/:categoryId` returns dynamic filter attribute definitions and enum options associated with the category.
-- [ ] Typed EAV validator ensuring submitted filter attributes match category configuration and type rules (`enum` value in options, `range` numeric min/max, `boolean` flag).
-- [ ] Safe, parameterized SQL predicate builder converting dynamic filter parameters into parameterized SQL queries against `listing_attribute_values`.
-- [ ] Validation rejecting filter attributes not enabled for the selected category.
-- [ ] Integration tests verifying category filter configuration retrieval, valid dynamic filter queries, and invalid attribute rejection.
+- [x] Filter repository, service, controller, and Zod validation schemas implemented under `src/modules/filters/`.
+- [x] `GET /api/v1/filters/:categoryId` returns dynamic filter attribute definitions and enum options associated with the category.
+- [x] Typed EAV validator ensuring submitted filter attributes match category configuration and type rules (`enum` value in options, `range` numeric min/max, `boolean` flag).
+- [x] Safe, parameterized SQL predicate builder converting dynamic filter parameters into parameterized SQL queries against `listing_attribute_values`.
+- [x] Validation rejecting filter attributes not enabled for the selected category.
+- [x] Integration tests verifying category filter configuration retrieval, valid dynamic filter queries, and invalid attribute rejection.
